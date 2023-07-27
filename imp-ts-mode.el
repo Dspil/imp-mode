@@ -28,7 +28,11 @@
        ((node-is "else") parent-bol 0)
        ((node-is "end") parent-bol 0)
        ((parent-is "whilestm") parent-bol ,offset)
-       ((parent-is "ifstm") parent-bol ,offset)))))
+       ((parent-is "ifstm") parent-bol ,offset)
+       ((parent-is "seqn") parent-bol 0)
+       ((parent-is "annotated_whilestm") parent-bol ,offset)
+       ((parent-is "annotated_ifstm") parent-bol ,offset)
+       ((parent-is "annotated_seqn") parent-bol 0)))))
 
 (defun imp-ts-mode:verify ()
   "Verify the hoare logic in the file"
