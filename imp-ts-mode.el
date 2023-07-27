@@ -25,7 +25,7 @@
     `((imp
        ((node-is "}") parent-bol 0)
        ((node-is ")") parent-bol 0)
-       ((node-is "else") parent-bol)
+       ((node-is "else") parent-bol 0)
        ((parent-is "whilestm") parent-bol ,offset)
        ((parent-is "ifstm") parent-bol ,offset)))))
 
@@ -39,6 +39,7 @@
   "imp mode with tree-sitter"
   "Major mode for editing imp"
   (electric-indent-local-mode nil)
+  (treesit-parser-create 'imp)
   (setq-local treesit-simple-indent-rules imp-ts-mode-indent-rules)
   (treesit-major-mode-setup))
 
