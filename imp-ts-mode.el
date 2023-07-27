@@ -20,6 +20,18 @@
 
 (defvar imp-ts-mode-indent-offset 2 "The indentation level for imp.")
 
+(defvar imp-ts-mode--treesit-settings
+  (treesit-font-lock-rules
+   :feature 'keywords
+   :language 'imp
+   '(("while" @font-lock-keyword-face)
+     ("end" @font-lock-keyword-face)
+     ("do" @font-lock-keyword-face)
+     ("if" @font-lock-keyword-face)
+     ("then" @font-lock-keyword-face)
+     ("else" @font-lock-keyword-face)
+     ("skip" @font-lock-builtin-face))))
+
 (defvar imp-ts-mode-indent-rules
   (let ((offset imp-ts-mode-indent-offset))
     `((imp
@@ -53,6 +65,9 @@
   (electric-indent-local-mode nil)
   (treesit-parser-create 'imp)
   (setq-local treesit-simple-indent-rules imp-ts-mode-indent-rules)
+  (setq-local treesit-font-lock-settings imp-ts-mode--treesit-settings)
+  (setq-local treesit-font-lock-feature-list
+              '((keywords)))
   (treesit-major-mode-setup))
 
 ;;;###autoload
