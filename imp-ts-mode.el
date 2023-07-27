@@ -26,6 +26,7 @@
        ((node-is "}") parent-bol 0)
        ((node-is ")") parent-bol 0)
        ((node-is "else") parent-bol 0)
+       ((node-is "end") parent-bol 0)
        ((parent-is "whilestm") parent-bol ,offset)
        ((parent-is "ifstm") parent-bol ,offset)))))
 
