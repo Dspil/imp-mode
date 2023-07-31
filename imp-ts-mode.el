@@ -534,7 +534,7 @@
       (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
       (imp-ts-mode:verify-node tree)
       (setq-local imp-ts-mode-number-of-errors (- imp-ts-mode-number-of-errors prev-err))
-      (setq-local (imp-ts-mode-change nil)))))
+      (setq-local imp-ts-mode-change nil))))
 
 ;; ==========
 ;; Major mode
@@ -556,7 +556,7 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
-  (add-hook 'after-change-functions (lambda () (setq-local (imp-ts-mode-change t))))
+  (add-hook 'after-change-functions (lambda () (setq-local imp-ts-mode-change t)))
   (when (not imp-ts-mode-timer)
     (setq imp-ts-mode-timer t)
     (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
