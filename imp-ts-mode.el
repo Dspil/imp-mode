@@ -18,6 +18,28 @@
 
 ;;; Code:
 
+;; =============
+;; Error display
+;; =============
+
+(defvar-local imp-ts-mode-highlight-overlays nil "Keeps the highlight overlays of errors.")
+
+(defgroup imp-ts-mode-faces nil
+  "Imp-Ts-Mode highlight faces."
+  :group 'tools)
+
+(defface imp-ts-mode-error
+  '((((supports :underline (:style wave)))
+     :underline (:style wave :color "Red1"))
+    (t
+     :underline t :inherit error))
+  "Imp-Ts-Mode face for errors."
+  :group 'imp-ts-mode-faces)
+
+(defface imp-ts-mode-verified-face
+  '((t (:weight bold :foreground "Green")))
+  "The face used to highlight succesful verification.")
+
 ;; ====================
 ;; Indentation and font
 ;; ====================
@@ -50,7 +72,6 @@
        ((node-is "end") parent-bol 0)
        ((node-is "then") parent-bol 0)
        ((parent-is "whilestm") parent-bol ,offset)
-       ((match nil "ERROR" parent-bol ,offset))
        ((parent-is "ifstm") parent-bol ,offset)
        ((parent-is "seqn") parent-bol 0)
        ((parent-is "skip") parent-bol 0)
@@ -67,7 +88,18 @@
 ;; ==============
 
 (defun imp-ts-mode:error (start end msg)
-  (message "Error at <%s:%s>: %s" start end msg))
+  (let ((ov (make-overlay
+             start
+             end)))
+    (push ov imp-ts-mode-highlight-overlays)
+    (overlay-put ov 'face 'imp-ts-mode-error)
+    (overlay-put ov 'help-echo (substring-no-properties msg))
+    (overlay-put ov
+                 'cursor-sensor-functions
+                 (list
+                  (lambda (window pos action)
+                    (when (eq action 'entered)
+                      (message "%s" (substring-no-properties msg))))))))
 
 ;; ================
 ;; Helper functions
@@ -165,51 +197,12 @@
     (set-text-properties start end nil str)
     str))
 
-(defun imp-ts-mode:stringify-logic (node)
-  (pcase (treesit-node-type node)
-    ("lexp" (pcase (treesit-node-type (treesit-node-child node 0))
-              ("(" (let* ((child (treesit-node-child node 1))
-                          (str (imp-ts-mode:stringify child))
-                          (grandchild (treesit-node-child child 0))
-                          (grandchild-type (treesit-node-type grandchild))
-                          (grandchild-op (treesit-node-child child 1))
-                          (grandchild-op-type (treesit-node-type grandchild-op)))
-                     (if (and (equal grandchild-type "lexp") (equal grandchild-op-type "||"))
-                         (format "(%s)" str)
-                       str)))
-              ("!" (let* ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
-                     (format "!%s" str)))
-              ((or "lexp" "laexp")
-               (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
-                      (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
-                 (let* ((op (treesit-node-child node 1))
-                        (op-type (treesit-node-type op))
-                        (paren (if (equal op-type "||") t nil)))
-                   (format "%s%s%s"
-                           str-left
-                           (pcase op-type
-                             ("rop" (imp-ts-mode:node-text op))
-                             (optext optext))
-                           str-right))))))
-    ("laexp" (pcase (treesit-node-type (treesit-node-child node 0))
-               ("(" (imp-ts-mode:stringify (treesit-node-child node 1)))
-               ("-" (let ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
-                      (format "(-%s)" str)))
-               ("laexp"
-                (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
-                       (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
-                  (format "(%s%s%s)"
-                          str-left
-                          (imp-ts-mode:node-text (treesit-node-child node 1))
-                          str-right)))
-               ("identifier" (let ((id (imp-ts-mode:node-text node))) id))
-               ("numeral" (imp-ts-mode:node-text node))))))
-
 (defun imp-ts-mode:stringify-to-logic (node)
   (pcase (treesit-node-type node)
+    ("single_condition" (imp-ts-mode:stringify-to-logic (treesit-node-child node 1)))
     ((or "lexp" "bexp") (pcase (treesit-node-type (treesit-node-child node 0))
                           ("(" (let* ((child (treesit-node-child node 1))
-                                      (str (imp-ts-mode:stringify child))
+                                      (str (imp-ts-mode:stringify-to-logic child))
                                       (grandchild (treesit-node-child child 0))
                                       (grandchild-type (treesit-node-type grandchild))
                                       (grandchild-op (treesit-node-child child 1))
@@ -217,11 +210,11 @@
                                  (if (and (equal grandchild-type "lexp") (equal grandchild-op-type "||"))
                                      (format "(%s)" str)
                                    str)))
-                          ((or "!" "not") (let* ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                          ((or "!" "not") (let* ((str (imp-ts-mode:stringify-to-logic (treesit-node-child node 1))))
                                             (format "!%s" str)))
-                          ((or "lexp" "laexp")
-                           (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
-                                  (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                          ((or "lexp" "laexp" "bexp" "aexp")
+                           (let* ((str-left (imp-ts-mode:stringify-to-logic (treesit-node-child node 0)))
+                                  (str-right (imp-ts-mode:stringify-to-logic (treesit-node-child node 2))))
                              (let* ((op (treesit-node-child node 1))
                                     (op-type (treesit-node-type op)))
                                (format "%s%s%s"
@@ -233,18 +226,19 @@
                                          (optext optext))
                                        str-right))))))
     ((or "laexp" "aexp") (pcase (treesit-node-type (treesit-node-child node 0))
-                           ("(" (imp-ts-mode:stringify (treesit-node-child node 1)))
-                           ("-" (let ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                           ("(" (imp-ts-mode:stringify-to-logic (treesit-node-child node 1)))
+                           ("-" (let ((str (imp-ts-mode:stringify-to-logic (treesit-node-child node 1))))
                                   (format "(-%s)" str)))
                            ("laexp"
-                            (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
-                                   (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                            (let* ((str-left (imp-ts-mode:stringify-to-logic (treesit-node-child node 0)))
+                                   (str-right (imp-ts-mode:stringify-to-logic (treesit-node-child node 2))))
                               (format "(%s%s%s)"
                                       str-left
                                       (imp-ts-mode:node-text (treesit-node-child node 1))
                                       str-right)))
                            ("identifier" (let ((id (imp-ts-mode:node-text node))) id))
-                           ("numeral" (imp-ts-mode:node-text node))))))
+                           ("numeral" (imp-ts-mode:node-text node))))
+    (op (message "unknown operation %s" op))))
 
 ;; tree traversal
 
@@ -276,7 +270,6 @@
   (imp-ts-mode:logic-last (treesit-node-child node 0)))
 
 (defun imp-ts-mode:check-logic (node)
-  (message "Checking logic %s" node)
   (pcase (treesit-node-type node)
     ("implication" (let* ((left (treesit-node-child node 0))
                           (right (treesit-node-child node 2))
@@ -331,7 +324,7 @@
                                               (imp-ts-mode:node-child-no-paren (treesit-node-child post 1))
                                               left
                                               right
-                                              replace))
+                                              replaced))
           ((guard (and (equal fst-post-typ "identifier")
                        (equal left (imp-ts-mode:node-text fst-post))
                        (not replaced)))
@@ -351,6 +344,33 @@
                            (treesit-node-end right)
                            "Assignment rule not applied properly."))))
 
+(defun imp-ts-mode:check-while-rule (pre condition inv-pre inv-post post)
+  (let* ((pre-str (imp-ts-mode:stringify-to-logic pre))
+         (pre-start (treesit-node-start pre))
+         (pre-end (treesit-node-end pre))
+         (condition-str (imp-ts-mode:stringify-to-logic condition))
+         (condition-str-paren (format "(%s)" condition-str))
+         (inv-pre-str (imp-ts-mode:stringify-to-logic inv-pre))
+         (inv-pre-start (treesit-node-start inv-pre))
+         (inv-pre-end (treesit-node-end inv-pre))
+         (inv-post-str (imp-ts-mode:stringify-to-logic inv-post))
+         (inv-post-start (treesit-node-start inv-post))
+         (inv-post-end (treesit-node-end inv-post))
+         (post-str (imp-ts-mode:stringify-to-logic post))
+         (post-start (treesit-node-start post))
+         (post-end (treesit-node-end post)))
+    (when (not (equal pre-str inv-post-str))
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error inv-post-start inv-post-end "While rule not applied properly."))
+    (when (not (or (equal (concat condition-str "&&" pre-str) inv-pre-str)
+                   (equal (concat condition-str-paren "&&" pre-str) inv-pre-str)))
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error inv-pre-start inv-pre-end "While rule not applied properly."))
+    (when (not (or (equal (concat "!" condition-str "&&" pre-str) post-str)
+                   (equal (concat "!" condition-str-paren "&&" pre-str) post-str)))
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error post-start post-end "While rule not applied properly."))))
+
 (defun imp-ts-mode:check-whilestm (node post)
   (let* ((pre (imp-ts-mode:precondition node))
          (condition (treesit-node-child node 2))
@@ -360,7 +380,43 @@
          (inv-post (imp-ts-mode:logic-last body-post)))
     (imp-ts-mode:check-logic body-post)
     (imp-ts-mode:verify-node body (imp-ts-mode:logic-first body-post))
-    (message "Checking while: {%s} while %s do {%s} %s {%s} end {%s}" pre condition inv-pre body inv-post post)))
+    (imp-ts-mode:check-while-rule pre condition inv-pre inv-post post)))
+
+(defun imp-ts-mode:check-if-rule (pre condition then-pre then-post else-pre else-post post)
+  (let* ((pre-str (imp-ts-mode:stringify-to-logic pre))
+         (pre-start (treesit-node-start pre))
+         (pre-end (treesit-node-end pre))
+         (condition-str (imp-ts-mode:stringify-to-logic condition))
+         (condition-str-paren (format "(%s)" condition-str))
+         (then-pre-str (imp-ts-mode:stringify-to-logic then-pre))
+         (then-pre-start (treesit-node-start then-pre))
+         (then-pre-end (treesit-node-end then-pre))
+         (then-post-str (imp-ts-mode:stringify-to-logic then-post))
+         (then-post-start (treesit-node-start then-post))
+         (then-post-end (treesit-node-end then-post))
+         (else-pre-str (imp-ts-mode:stringify-to-logic else-pre))
+         (else-pre-start (treesit-node-start else-pre))
+         (else-pre-end (treesit-node-end else-pre))
+         (else-post-str (imp-ts-mode:stringify-to-logic else-post))
+         (else-post-start (treesit-node-start else-post))
+         (else-post-end (treesit-node-end else-post))
+         (post-str (imp-ts-mode:stringify-to-logic post))
+         (post-start (treesit-node-start post))
+         (post-end (treesit-node-end post)))
+    (when (not (equal then-post-str else-post-str))
+      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly.")
+      (imp-ts-mode:error else-post-start else-post-end "If rule not applied properly."))
+    (when (not (equal then-post-str post-str))
+      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly.")
+      (imp-ts-mode:error post-start post-end "If rule not applied properly."))
+    (when (not (or (equal (concat condition-str "&&" pre-str) then-pre-str)
+                   (equal (concat condition-str-paren "&&" pre-str) then-pre-str)))
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error then-pre-start then-pre-end "While rule not applied properly."))
+    (when (not (or (equal (concat "!" condition-str "&&" pre-str) else-pre-str)
+                   (equal (concat "!" condition-str-paren "&&" pre-str) else-pre-str)))
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error else-pre-start else-pre-end "While rule not applied properly."))))
 
 (defun imp-ts-mode:check-ifstm (node post)
   (let* ((pre (imp-ts-mode:precondition node))
@@ -377,7 +433,7 @@
     (imp-ts-mode:check-logic else-body-post)
     (imp-ts-mode:verify-node then (imp-ts-mode:logic-first then-body-post))
     (imp-ts-mode:verify-node else (imp-ts-mode:logic-first else-body-post))
-    (message "Checking if: {%s} if %s then {%s} %s {%s} else {%s} %s {%s} end {%s}" pre condition then-pre then then-post else-pre else else-post post)))
+    (imp-ts-mode:check-if-rule pre condition then-pre then-post else-pre else-post post)))
 
 (defun imp-ts-mode:check-skip (node post)
   (let ((pre (imp-ts-mode:precondition node)))
@@ -410,6 +466,7 @@
 (defun imp-ts-mode:verify ()
   "Verify the hoare logic in the file"
   (interactive)
+  (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
   (let ((tree (treesit-buffer-root-node)))
     (imp-ts-mode:verify-node tree)))
 
@@ -426,7 +483,8 @@
   (setq-local treesit-font-lock-settings imp-ts-mode--treesit-settings)
   (setq-local treesit-font-lock-feature-list
               '((keywords logic)))
-  (treesit-major-mode-setup))
+  (treesit-major-mode-setup)
+  (cursor-sensor-mode))
 
 ;;;###autoload
 
