@@ -50,6 +50,7 @@
        ((node-is "end") parent-bol 0)
        ((node-is "then") parent-bol 0)
        ((parent-is "whilestm") parent-bol ,offset)
+       ((match nil "ERROR" parent-bol ,offset))
        ((parent-is "ifstm") parent-bol ,offset)
        ((parent-is "seqn") parent-bol 0)
        ((parent-is "skip") parent-bol 0)
@@ -111,7 +112,7 @@
                                  (pcase op-type
                                    ("&&" "and")
                                    ("||" "or")
-                                   ("rop" (pcase (treesit-node-text op)
+                                   ("rop" (pcase (imp-ts-mode:node-text op)
                                             ("#" "neq")
                                             (rop rop)))))
                                query-left
@@ -131,11 +132,11 @@
                        (query-right (cdr data-right)))
                   (cons (imp-ts-mode:merge new-terms-left new-terms-right)
                         (format "(%s %s %s)"
-                                (treesit-node-text (treesit-node-child node 1))
+                                (imp-ts-mode:node-text (treesit-node-child node 1))
                                 query-left
                                 query-right))))
-               ("identifier" (let ((id (treesit-node-text node))) (cons (list id) id)))
-               ("numeral" (cons nil (treesit-node-text node)))))))
+               ("identifier" (let ((id (imp-ts-mode:node-text node))) (cons (list id) id)))
+               ("numeral" (cons nil (imp-ts-mode:node-text node)))))))
 
 (defun imp-ts-mode:data-from-single-condition (single-condition)
   (imp-ts-mode:query-terms-from-node nil (treesit-node-child single-condition 1)))
@@ -154,6 +155,96 @@
         ("unsat" t)
         ("sat" nil)
         (_ (message "Unknown Z3 answer: %s" z3-ret) nil)))))
+
+;; stringify
+
+(defun imp-ts-mode:node-text (node)
+  (let* ((str (treesit-node-text node))
+         (start 0)
+         (end (length str)))
+    (set-text-properties start end nil str)
+    str))
+
+(defun imp-ts-mode:stringify-logic (node)
+  (pcase (treesit-node-type node)
+    ("lexp" (pcase (treesit-node-type (treesit-node-child node 0))
+              ("(" (let* ((child (treesit-node-child node 1))
+                          (str (imp-ts-mode:stringify child))
+                          (grandchild (treesit-node-child child 0))
+                          (grandchild-type (treesit-node-type grandchild))
+                          (grandchild-op (treesit-node-child child 1))
+                          (grandchild-op-type (treesit-node-type grandchild-op)))
+                     (if (and (equal grandchild-type "lexp") (equal grandchild-op-type "||"))
+                         (format "(%s)" str)
+                       str)))
+              ("!" (let* ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                     (format "!%s" str)))
+              ((or "lexp" "laexp")
+               (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
+                      (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                 (let* ((op (treesit-node-child node 1))
+                        (op-type (treesit-node-type op))
+                        (paren (if (equal op-type "||") t nil)))
+                   (format "%s%s%s"
+                           str-left
+                           (pcase op-type
+                             ("rop" (imp-ts-mode:node-text op))
+                             (optext optext))
+                           str-right))))))
+    ("laexp" (pcase (treesit-node-type (treesit-node-child node 0))
+               ("(" (imp-ts-mode:stringify (treesit-node-child node 1)))
+               ("-" (let ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                      (format "(-%s)" str)))
+               ("laexp"
+                (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
+                       (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                  (format "(%s%s%s)"
+                          str-left
+                          (imp-ts-mode:node-text (treesit-node-child node 1))
+                          str-right)))
+               ("identifier" (let ((id (imp-ts-mode:node-text node))) id))
+               ("numeral" (imp-ts-mode:node-text node))))))
+
+(defun imp-ts-mode:stringify-to-logic (node)
+  (pcase (treesit-node-type node)
+    ((or "lexp" "bexp") (pcase (treesit-node-type (treesit-node-child node 0))
+                          ("(" (let* ((child (treesit-node-child node 1))
+                                      (str (imp-ts-mode:stringify child))
+                                      (grandchild (treesit-node-child child 0))
+                                      (grandchild-type (treesit-node-type grandchild))
+                                      (grandchild-op (treesit-node-child child 1))
+                                      (grandchild-op-type (treesit-node-type grandchild-op)))
+                                 (if (and (equal grandchild-type "lexp") (equal grandchild-op-type "||"))
+                                     (format "(%s)" str)
+                                   str)))
+                          ((or "!" "not") (let* ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                                            (format "!%s" str)))
+                          ((or "lexp" "laexp")
+                           (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
+                                  (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                             (let* ((op (treesit-node-child node 1))
+                                    (op-type (treesit-node-type op)))
+                               (format "%s%s%s"
+                                       str-left
+                                       (pcase op-type
+                                         ("rop" (imp-ts-mode:node-text op))
+                                         ("and" "&&")
+                                         ("or" "||")
+                                         (optext optext))
+                                       str-right))))))
+    ((or "laexp" "aexp") (pcase (treesit-node-type (treesit-node-child node 0))
+                           ("(" (imp-ts-mode:stringify (treesit-node-child node 1)))
+                           ("-" (let ((str (imp-ts-mode:stringify (treesit-node-child node 1))))
+                                  (format "(-%s)" str)))
+                           ("laexp"
+                            (let* ((str-left (imp-ts-mode:stringify (treesit-node-child node 0)))
+                                   (str-right (imp-ts-mode:stringify (treesit-node-child node 2))))
+                              (format "(%s%s%s)"
+                                      str-left
+                                      (imp-ts-mode:node-text (treesit-node-child node 1))
+                                      str-right)))
+                           ("identifier" (let ((id (imp-ts-mode:node-text node))) id))
+                           ("numeral" (imp-ts-mode:node-text node))))))
 
 ;; tree traversal
 
@@ -224,7 +315,7 @@
              (fst-post-typ (imp-ts-mode:translate-typ (treesit-node-type fst-post))))
         (pcase `(,fst-pre-typ . ,fst-post-typ)
           ((or '("lexp" . "lexp") '("laexp" . "laexp"))
-           (when (equal (treesit-node-text (treesit-node-child pre 1)) (treesit-node-text (treesit-node-child post 1)))
+           (when (equal (imp-ts-mode:node-text (treesit-node-child pre 1)) (imp-ts-mode:node-text (treesit-node-child post 1)))
              (and (imp-ts-mode:check-assignment-rule (imp-ts-mode:node-child-no-paren fst-pre)
                                                      (imp-ts-mode:node-child-no-paren fst-post)
                                                      left
@@ -242,11 +333,11 @@
                                               right
                                               replace))
           ((guard (and (equal fst-post-typ "identifier")
-                       (equal left (treesit-node-text fst-post))
+                       (equal left (imp-ts-mode:node-text fst-post))
                        (not replaced)))
            (imp-ts-mode:check-assignment-rule pre right left right t))
           ((or '("identifier" . "identifier") '("numeral" . "numeral"))
-           (equal (treesit-node-text fst-pre) (treesit-node-text fst-post))))))))
+           (equal (imp-ts-mode:node-text fst-pre) (imp-ts-mode:node-text fst-post))))))))
 
 (defun imp-ts-mode:check-assignment (node post)
   (let ((pre (imp-ts-mode:precondition node))
@@ -254,7 +345,7 @@
         (right (treesit-node-child node 3)))
     (if (not (imp-ts-mode:check-assignment-rule (imp-ts-mode:node-child-no-paren pre)
                                                 (imp-ts-mode:node-child-no-paren post)
-                                                (treesit-node-text left)
+                                                (imp-ts-mode:node-text left)
                                                 right))
         (imp-ts-mode:error (treesit-node-start left)
                            (treesit-node-end right)
