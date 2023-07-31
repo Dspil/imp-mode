@@ -83,6 +83,7 @@
        ((parent-is "annotated_skip") parent-bol 0)
        ((parent-is "implication") parent-bol 0)
        (,(lambda (node parent bol)
+           (message "inside")
            (and (equal (treesit-node-type parent) "ERROR")
                 (or
                  (equal (treesit-node-type (treesit-node-child parent 1)) "if")
