@@ -23,6 +23,7 @@
 ;; =============
 
 (defvar-local imp-ts-mode-highlight-overlays nil "Keeps the highlight overlays of errors.")
+(defvar-local imp-ts-mode-number-of-errors 0 "Keeps the highlight overlays of errors.")
 
 (defgroup imp-ts-mode-faces nil
   "Imp-Ts-Mode highlight faces."
@@ -39,6 +40,10 @@
 (defface imp-ts-mode-verified-face
   '((t (:weight bold :foreground "Green")))
   "The face used to highlight succesful verification.")
+
+(defface imp-ts-mode-unverified-face
+  '((t (:weight bold :foreground "Red")))
+  "The face used to highlight failed verification.")
 
 ;; ====================
 ;; Indentation and font
@@ -83,9 +88,13 @@
        ((parent-is "annotated_skip") parent-bol 0)
        ((parent-is "implication") parent-bol 0)
        (,(lambda (node parent bol)
-           (message "inside")
-           (and (equal (treesit-node-type parent) "ERROR")
+           (message "inside %s %s" (treesit-node-type parent) (treesit-node-type (treesit-node-child parent 0)))
+           (and (not (equal (treesit-node-type node) "while"))
+                (not (equal (treesit-node-type node) "if"))
+                (equal (treesit-node-type parent) "ERROR")
                 (or
+                 (equal (treesit-node-type (treesit-node-child parent 0)) "if")
+                 (equal (treesit-node-type (treesit-node-child parent 0)) "while")
                  (equal (treesit-node-type (treesit-node-child parent 1)) "if")
                  (equal (treesit-node-type (treesit-node-child parent 1)) "while"))))
         parent-bol ,offset)))))
@@ -94,7 +103,9 @@
 ;; Error handling
 ;; ==============
 
-(defun imp-ts-mode:error (start end msg)
+(defun imp-ts-mode:error (start end msg &optional inc)
+  (when inc
+    (setq-local imp-ts-mode-number-of-errors (1+ imp-ts-mode-number-of-errors)))
   (let ((ov (make-overlay
              start
              end)))
@@ -293,7 +304,7 @@
                      (imp-ts-mode:check-logic left)
                      (imp-ts-mode:check-logic right)
                      (when (not (imp-ts-mode:query-z3 terms query))
-                       (imp-ts-mode:error (treesit-node-start last-left) (treesit-node-end first-right) "Implication might not hold."))))
+                       (imp-ts-mode:error (treesit-node-start last-left) (treesit-node-end first-right) "Implication might not hold." t))))
     (_ nil)))
 
 (defun imp-ts-mode:check-pre (node)
@@ -349,7 +360,8 @@
                                                 right))
         (imp-ts-mode:error (treesit-node-start left)
                            (treesit-node-end right)
-                           "Assignment rule not applied properly."))))
+                           "Assignment rule not applied properly."
+                           t))))
 
 (defun imp-ts-mode:check-while-rule (pre condition inv-pre inv-post post)
   (let* ((pre-str (imp-ts-mode:stringify-to-logic pre))
@@ -367,15 +379,15 @@
          (post-start (treesit-node-start post))
          (post-end (treesit-node-end post)))
     (when (not (equal pre-str inv-post-str))
-      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly." t)
       (imp-ts-mode:error inv-post-start inv-post-end "While rule not applied properly."))
     (when (not (or (equal (concat condition-str "&&" pre-str) inv-pre-str)
                    (equal (concat condition-str-paren "&&" pre-str) inv-pre-str)))
-      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly." t)
       (imp-ts-mode:error inv-pre-start inv-pre-end "While rule not applied properly."))
     (when (not (or (equal (concat "!" condition-str "&&" pre-str) post-str)
                    (equal (concat "!" condition-str-paren "&&" pre-str) post-str)))
-      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly." t)
       (imp-ts-mode:error post-start post-end "While rule not applied properly."))))
 
 (defun imp-ts-mode:check-whilestm (node post)
@@ -411,18 +423,18 @@
          (post-start (treesit-node-start post))
          (post-end (treesit-node-end post)))
     (when (not (equal then-post-str else-post-str))
-      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly.")
+      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly." t)
       (imp-ts-mode:error else-post-start else-post-end "If rule not applied properly."))
     (when (not (equal then-post-str post-str))
-      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly.")
+      (imp-ts-mode:error then-post-start then-post-end "If rule not applied properly." t)
       (imp-ts-mode:error post-start post-end "If rule not applied properly."))
     (when (not (or (equal (concat condition-str "&&" pre-str) then-pre-str)
                    (equal (concat condition-str-paren "&&" pre-str) then-pre-str)))
-      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly." t)
       (imp-ts-mode:error then-pre-start then-pre-end "While rule not applied properly."))
     (when (not (or (equal (concat "!" condition-str "&&" pre-str) else-pre-str)
                    (equal (concat "!" condition-str-paren "&&" pre-str) else-pre-str)))
-      (imp-ts-mode:error pre-start pre-end "While rule not applied properly.")
+      (imp-ts-mode:error pre-start pre-end "While rule not applied properly." t)
       (imp-ts-mode:error else-pre-start else-pre-end "While rule not applied properly."))))
 
 (defun imp-ts-mode:check-ifstm (node post)
@@ -466,6 +478,21 @@
     ("annotated_seqn" (imp-ts-mode:check-seqn node post))
     ("annotated_skip" (imp-ts-mode:check-pre node) (imp-ts-mode:check-skip node post))))
 
+;; =========
+;; Mode line
+;; =========
+
+(defun imp-ts-mode-mode-line ()
+  "Return the mode line string."
+  (if imp-ts-mode
+      (let ((tree (treesit-buffer-root-node)))
+        (if (not (equal (treesit-node-type tree) "ERROR"))
+            (if (equal imp-ts-mode-number-of-errors 0)
+                (concat "[" (propertize "Correct" 'face 'imp-ts-mode-verified-face) "]")
+              (concat "[" (propertize (format  "%s errors" imp-ts-mode-number-of-errors) 'face 'imp-ts-mode-unverified-face) "]"))
+          (concat "[" (propertize "Parse error" 'face 'imp-ts-mode-unverified-face) "]")))
+    ""))
+
 ;; =====================
 ;; Interactive functions
 ;; =====================
@@ -473,9 +500,11 @@
 (defun imp-ts-mode:verify ()
   "Verify the hoare logic in the file"
   (interactive)
-  (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
   (let ((tree (treesit-buffer-root-node)))
-    (imp-ts-mode:verify-node tree)))
+    (when (not (equal (treesit-node-type tree) "ERROR"))
+      (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
+      (setq-local imp-ts-mode-number-of-errors 0)
+      (imp-ts-mode:verify-node tree))))
 
 ;; ==========
 ;; Major mode
@@ -491,7 +520,12 @@
   (setq-local treesit-font-lock-feature-list
               '((keywords logic)))
   (treesit-major-mode-setup)
-  (cursor-sensor-mode))
+  (cursor-sensor-mode)
+  (company-mode nil)
+  (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
+    (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
+  (imp-ts-mode:verify)
+  (add-hook 'after-change-functions 'imp-ts-mode:verify 0 t))
 
 ;;;###autoload
 
