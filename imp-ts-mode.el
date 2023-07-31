@@ -106,20 +106,21 @@
 ;; ==============
 
 (defun imp-ts-mode:error (start end msg &optional inc)
-  (when inc
-    (setq-local imp-ts-mode-number-of-errors (1+ imp-ts-mode-number-of-errors)))
-  (let ((ov (make-overlay
-             start
-             end)))
-    (push ov imp-ts-mode-highlight-overlays)
-    (overlay-put ov 'face 'imp-ts-mode-error)
-    (overlay-put ov 'help-echo (substring-no-properties msg))
-    (overlay-put ov
-                 'cursor-sensor-functions
-                 (list
-                  (lambda (window pos action)
-                    (when (eq action 'entered)
-                      (message "%s" (substring-no-properties msg))))))))
+  (when (and start end)
+    (when inc
+      (setq-local imp-ts-mode-number-of-errors (1+ imp-ts-mode-number-of-errors)))
+    (let ((ov (make-overlay
+               start
+               end)))
+      (push ov imp-ts-mode-highlight-overlays)
+      (overlay-put ov 'face 'imp-ts-mode-error)
+      (overlay-put ov 'help-echo (substring-no-properties msg))
+      (overlay-put ov
+                   'cursor-sensor-functions
+                   (list
+                    (lambda (window pos action)
+                      (when (eq action 'entered)
+                        (message "%s" (substring-no-properties msg)))))))))
 
 ;; ================
 ;; Helper functions
@@ -194,18 +195,18 @@
   (imp-ts-mode:query-terms-from-node nil (treesit-node-child single-condition 1)))
 
 (defun imp-ts-mode:query-z3 (terms query)
-  "Return t if the implication holds, nil if it doesn't."
+  "Return t if the implication holds, nil if it doesn'
   (with-temp-buffer
     (insert "(define-fun neq ((x!0 Int) (x!1 Int)) Bool (not (= x!0 x!1)))\n")
     (while terms
       (insert (format "(declare-const %s Int)\n" (car terms)))
       (setq terms (cdr terms)))
-    (insert (format "(assert (not %s))\n(check-sat)\n" query))
+    (insert (format "(assert %s)\n(check-sat)\n" query))
     (shell-command-on-region (point-min) (point-max) "z3 -in" (current-buffer) t)
     (let ((z3-ret (string-trim (buffer-string))))
       (pcase z3-ret
-        ("unsat" t)
-        ("sat" nil)
+        ("unsat" nil)
+        ("sat" t)
         (_ (message "Unknown Z3 answer: %s" z3-ret) nil)))))
 
 ;; stringify
@@ -302,12 +303,16 @@
                           (terms-right (car data-right))
                           (query-right (cdr data-right))
                           (terms (imp-ts-mode:merge terms-left terms-right))
-                          (query (format "(=> %s %s)" query-left query-right)))
+                          (query (format "(not (=> %s %s))" query-left query-right)))
                      (imp-ts-mode:check-logic left)
                      (imp-ts-mode:check-logic right)
-                     (when (not (imp-ts-mode:query-z3 terms query))
+                     (when (imp-ts-mode:query-z3 terms query)
                        (imp-ts-mode:error (treesit-node-start last-left) (treesit-node-end first-right) "Implication might not hold." t))))
-    (_ nil)))
+    ("single_condition" (let* ((data (imp-ts-mode:data-from-single-condition node))
+                               (terms (car data))
+                               (query (cdr data)))
+                          (when (not (imp-ts-mode:query-z3 terms query))
+                            (imp-ts-mode:error (treesit-node-start node) (treesit-node-end node) "Assertion equivalent to false." t))))))
 
 (defun imp-ts-mode:check-pre (node)
   (imp-ts-mode:check-logic (treesit-node-child node 0)))
@@ -488,7 +493,7 @@
   "Return the mode line string."
   (if (equal major-mode 'imp-ts-mode)
       (let ((tree (treesit-buffer-root-node)))
-        (if (not (equal (treesit-node-type tree) "ERROR"))
+        (if (not (treesit-node-check tree 'has-error))
             (if (equal imp-ts-mode-number-of-errors 0)
                 (concat "[" (propertize "Correct" 'face 'imp-ts-mode-verified-face) "]")
               (concat "[" (propertize (format  "%s errors" imp-ts-mode-number-of-errors) 'face 'imp-ts-mode-unverified-face) "]"))
@@ -503,7 +508,7 @@
   "Verify the hoare logic in the file"
   (interactive)
   (let ((tree (treesit-buffer-root-node)))
-    (when (not (equal (treesit-node-type tree) "ERROR"))
+    (when (not (treesit-node-check tree 'has-error))
       (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
       (setq-local imp-ts-mode-number-of-errors 0)
       (imp-ts-mode:verify-node tree))))
