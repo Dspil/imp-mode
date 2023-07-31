@@ -90,6 +90,8 @@
        (,(lambda (node parent bol)
            (message "inside %s %s" (treesit-node-type parent) (treesit-node-type (treesit-node-child parent 0)))
            (and (not (equal (treesit-node-type node) "while"))
+                (not (equal (treesit-node-type node) "annotated_whilestm"))
+                (not (equal (treesit-node-type node) "annotated_ifstm"))
                 (not (equal (treesit-node-type node) "if"))
                 (equal (treesit-node-type parent) "ERROR")
                 (or
