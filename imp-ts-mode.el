@@ -195,7 +195,7 @@
   (imp-ts-mode:query-terms-from-node nil (treesit-node-child single-condition 1)))
 
 (defun imp-ts-mode:query-z3 (terms query)
-  "Return t if the implication holds, nil if it doesn'
+  "Return t if the implication holds, nil if it doesn't"
   (with-temp-buffer
     (insert "(define-fun neq ((x!0 Int) (x!1 Int)) Bool (not (= x!0 x!1)))\n")
     (while terms
