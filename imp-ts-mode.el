@@ -24,6 +24,7 @@
 
 (defvar-local imp-ts-mode-highlight-overlays nil "Keeps the highlight overlays of errors.")
 (defvar-local imp-ts-mode-number-of-errors 0 "Keeps the highlight overlays of errors.")
+(defvar imp-ts-mode-timer nil "If t, idle timer function has already been set")
 
 (defgroup imp-ts-mode-faces nil
   "Imp-Ts-Mode highlight faces."
@@ -533,7 +534,8 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
-  (add-hook 'after-change-functions (lambda (start end p) (imp-ts-mode:verify)) 0 t))
+  (if (not imp-ts-mode-timer)
+      (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
 
 ;;;###autoload
 
