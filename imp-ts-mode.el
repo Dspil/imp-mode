@@ -25,6 +25,7 @@
 (defvar-local imp-ts-mode-highlight-overlays nil "Keeps the highlight overlays of errors.")
 (defvar-local imp-ts-mode-number-of-errors 0 "Keeps the highlight overlays of errors.")
 (defvar imp-ts-mode-timer nil "If t, idle timer function has already been set")
+(defvar-local imp-ts-mode-change nil)
 
 (defgroup imp-ts-mode-faces nil
   "Imp-Ts-Mode highlight faces."
@@ -45,6 +46,10 @@
 (defface imp-ts-mode-unverified-face
   '((t (:weight bold :foreground "Red")))
   "The face used to highlight failed verification.")
+
+(defface imp-ts-mode-notran-face
+  '((t (:weight bold :foreground "Orange")))
+  "The face used to highlight not run verification.")
 
 ;; ====================
 ;; Indentation and font
@@ -71,6 +76,14 @@
 (defvar imp-ts-mode-indent-rules
   (let ((offset imp-ts-mode-indent-offset))
     `((imp
+       (,(lambda (node parent bol)
+           (and (equal (treesit-node-type parent) "annotated_whilestm")
+                (equal (treesit-node-type node) "while")))
+        parent-bol 0)
+       (,(lambda (node parent bol)
+           (and (equal (treesit-node-type parent) "annotated_ifstm")
+                (equal (treesit-node-type node) "if")))
+        parent-bol 0)
        ((node-is "}") parent-bol 0)
        ((node-is ")") parent-bol 0)
        ((node-is "|=") parent-bol 0)
@@ -82,14 +95,6 @@
        ((parent-is "seqn") parent-bol 0)
        ((parent-is "skip") parent-bol 0)
        ((parent-is "assignment") parent-bol 0)
-       (,(lambda (node parent bol)
-           (and (equal (treesit-node-type parent "annotated_whilestm"))
-                (equal (treesit-node-type node "while"))))
-        parent-bol 0)
-       (,(lambda (node parent bol)
-           (and (equal (treesit-node-type parent "annotated_ifstm"))
-                (equal (treesit-node-type node "if"))))
-        parent-bol 0)
        ((parent-is "annotated_whilestm") parent-bol ,offset)
        ((parent-is "annotated_ifstm") parent-bol ,offset)
        ((parent-is "annotated_seqn") parent-bol 0)
@@ -128,7 +133,8 @@
                    (list
                     (lambda (window pos action)
                       (when (eq action 'entered)
-                        (message "%s" (substring-no-properties msg)))))))))
+                        (message "%s" (substring-no-properties msg))))))
+      (force-mode-line-update))))
 
 ;; ================
 ;; Helper functions
@@ -469,9 +475,14 @@
     (imp-ts-mode:verify-node else (imp-ts-mode:logic-first else-body-post))
     (imp-ts-mode:check-if-rule pre condition then-pre then-post else-pre else-post post)))
 
+(defun imp-ts-mode:check-skip-rule (node pre post)
+  (when (not (equal (imp-ts-mode:stringify-to-logic pre)
+                    (imp-ts-mode:stringify-to-logic post)))
+    (imp-ts-mode:error (treesit-node-start (treesit-node-child node 1)) (treesit-node-end node) "Skip rule note applied properly." t)))
+
 (defun imp-ts-mode:check-skip (node post)
   (let ((pre (imp-ts-mode:precondition node)))
-    (message "checking skip; {%s} skip {%s}" pre post)))
+    (imp-ts-mode:check-skip-rule node pre post)))
 
 (defun imp-ts-mode:check-seqn (node post)
   (let ((stm (treesit-node-child node 0)))
@@ -500,12 +511,14 @@
 (defun imp-ts-mode-mode-line ()
   "Return the mode line string."
   (if (equal major-mode 'imp-ts-mode)
-      (let ((tree (treesit-buffer-root-node)))
-        (if (not (treesit-node-check tree 'has-error))
+    (let ((tree (treesit-buffer-root-node)))
+      (if (not (treesit-node-check tree 'has-error))
+          (if imp-ts-mode-change
+              (concat "[" (propertize "Unknown" 'face 'imp-ts-mode-notran-face) "]")
             (if (equal imp-ts-mode-number-of-errors 0)
                 (concat "[" (propertize "Correct" 'face 'imp-ts-mode-verified-face) "]")
-              (concat "[" (propertize (format  "%s errors" imp-ts-mode-number-of-errors) 'face 'imp-ts-mode-unverified-face) "]"))
-          (concat "[" (propertize "Parse error" 'face 'imp-ts-mode-unverified-face) "]")))
+              (concat "[" (propertize (format  "%s errors" imp-ts-mode-number-of-errors) 'face 'imp-ts-mode-unverified-face) "]")))
+        (concat "[" (propertize "Parse error" 'face 'imp-ts-mode-unverified-face) "]")))
     ""))
 
 ;; =====================
@@ -515,11 +528,13 @@
 (defun imp-ts-mode:verify ()
   "Verify the hoare logic in the file"
   (interactive)
-  (let ((tree (treesit-buffer-root-node)))
+  (let ((tree (treesit-buffer-root-node))
+        (prev-err imp-ts-mode-number-of-errors))
     (when (not (treesit-node-check tree 'has-error))
       (seq-do #'delete-overlay imp-ts-mode-highlight-overlays)
-      (setq-local imp-ts-mode-number-of-errors 0)
-      (imp-ts-mode:verify-node tree))))
+      (imp-ts-mode:verify-node tree)
+      (setq-local imp-ts-mode-number-of-errors (- imp-ts-mode-number-of-errors prev-err))
+      (setq-local (imp-ts-mode-change nil)))))
 
 ;; ==========
 ;; Major mode
@@ -541,6 +556,7 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
+  (add-hook 'after-change-functions (lambda () (setq-local (imp-ts-mode-change t))))
   (when (not imp-ts-mode-timer)
     (setq imp-ts-mode-timer t)
     (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
