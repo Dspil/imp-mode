@@ -556,7 +556,7 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
-  (add-hook 'after-change-functions (lambda () (setq-local imp-ts-mode-change t)))
+  (add-hook 'after-change-functions (lambda (row col pos) (setq-local imp-ts-mode-change t)))
   (when (not imp-ts-mode-timer)
     (setq imp-ts-mode-timer t)
     (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
