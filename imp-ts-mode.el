@@ -534,9 +534,9 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
-  (if (not imp-ts-mode-timer)
-      (setq imp-ts-mode-timer t)
-      (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
+  (when (not imp-ts-mode-timer)
+    (setq imp-ts-mode-timer t)
+    (run-with-idle-timer 2 t (lambda () (when (equal major-mode 'imp-ts-mode) (imp-ts-mode:verify))))))
 
 ;;;###autoload
 
