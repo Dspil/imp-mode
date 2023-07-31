@@ -486,7 +486,7 @@
 
 (defun imp-ts-mode-mode-line ()
   "Return the mode line string."
-  (if imp-ts-mode
+  (if (equal major-mode 'imp-ts-mode)
       (let ((tree (treesit-buffer-root-node)))
         (if (not (equal (treesit-node-type tree) "ERROR"))
             (if (equal imp-ts-mode-number-of-errors 0)
@@ -515,6 +515,7 @@
 (define-derived-mode imp-ts-mode fundamental-mode
   "imp mode with tree-sitter"
   "Major mode for editing imp"
+  (setq-local imp-ts-mode t)
   (electric-indent-local-mode nil)
   (treesit-parser-create 'imp)
   (setq-local treesit-simple-indent-rules imp-ts-mode-indent-rules)
@@ -527,7 +528,7 @@
   (unless (member '(:eval (imp-ts-mode-mode-line)) global-mode-string)
     (setq global-mode-string (append global-mode-string '((:eval (imp-ts-mode-mode-line))))))
   (imp-ts-mode:verify)
-  (add-hook 'after-change-functions 'imp-ts-mode:verify 0 t))
+  (add-hook 'after-change-functions (lambda (start end p) (imp-ts-mode:verify)) 0 t))
 
 ;;;###autoload
 
