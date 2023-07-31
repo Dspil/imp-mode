@@ -81,7 +81,13 @@
        ((parent-is "annotated_seqn") parent-bol 0)
        ((parent-is "annotated_assignment") parent-bol 0)
        ((parent-is "annotated_skip") parent-bol 0)
-       ((parent-is "implication") parent-bol 0)))))
+       ((parent-is "implication") parent-bol 0)
+       (,(lambda (node parent bol)
+           (and (equal (treesit-node-type parent) "ERROR")
+                (or
+                 (equal (treesit-node-type (treesit-node-child parent 1)) "if")
+                 (equal (treesit-node-type (treesit-node-child parent 1)) "while"))))
+        parent-bol ,offset)))))
 
 ;; ==============
 ;; Error handling
