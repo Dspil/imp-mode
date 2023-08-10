@@ -179,6 +179,8 @@
                                  (pcase op-type
                                    ("&&" "and")
                                    ("||" "or")
+                                   ("==>" "=>")
+                                   ("<==>" "equiv")
                                    ("rop" (pcase (imp-ts-mode:node-text op)
                                             ("#" "neq")
                                             (rop rop)))))
@@ -212,6 +214,7 @@
   "Return t if the implication holds, nil if it doesn't"
   (with-temp-buffer
     (insert "(define-fun neq ((x!0 Int) (x!1 Int)) Bool (not (= x!0 x!1)))\n")
+    (insert "(define-fun equiv ((x!0 Bool) (x!1 Bool)) Bool (and (=> x!0 x!1) (=> x!1 x!0)))\n")
     (while terms
       (insert (format "(declare-const %s Int)\n" (car terms)))
       (setq terms (cdr terms)))
