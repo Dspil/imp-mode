@@ -276,7 +276,7 @@
                                       str-right)))
                            ("identifier" (let ((id (imp-ts-mode:node-text node))) id))
                            ("numeral" (imp-ts-mode:node-text node))))
-    (op (message "unknown operation %s" op))))
+    (op (message "unknown operation %s in node %s" op (treesit-node-text node)))))
 
 (defun imp-ts-mode:is-conjunction (left right ref &optional invert)
   (let ((left-paren (format "(%s)" left))
@@ -307,10 +307,15 @@
 
 (defun imp-ts-mode:logic-first (node)
   (pcase (treesit-node-type node)
-    ((or "annotated_assignment" "annotated_whilestm" "annotated_seqn" "annotated_skip")
+    ((or "annotated_assignment"
+         "annotated_whilestm"
+         "annotated_seqn"
+         "annotated_skip"
+         "annotated_ifstm")
      (imp-ts-mode:logic-first (treesit-node-child node 0)))
     ("single_condition" node)
-    ("implication" (imp-ts-mode:logic-first (treesit-node-child node 0)))))
+    ("implication" (imp-ts-mode:logic-first (treesit-node-child node 0)))
+    (typ (message "Can't fetch logic first for type %s" typ))))
 
 (defun imp-ts-mode:logic-last (node)
   (pcase (treesit-node-type node)
@@ -419,8 +424,8 @@
       (imp-ts-mode:error pre-start pre-end "While rule violated:\nInvariant is not syntactically equal before the loop and after the loop body." t)
       (imp-ts-mode:error inv-post-start inv-post-end "While rule violated:\nInvariant is not syntactically equal before the loop and after the loop body."))
     (when (not (imp-ts-mode:is-conjunction condition-str pre-str inv-pre-str))
-      (imp-ts-mode:error pre-start pre-end "While rule violated:\nCondition entering the loop is not the conjunction of the loop condition and the loop invariant." t)
-      (imp-ts-mode:error inv-pre-start inv-pre-end "While rule violated:\nCondition entering the loop is not the conjunction of the loop condition and the loop invariant."))
+      (imp-ts-mode:error pre-start pre-end "While rule violated:\nAssertion entering the loop is not the conjunction of the loop condition and the loop invariant." t)
+      (imp-ts-mode:error inv-pre-start inv-pre-end "While rule violated:\nAssertion entering the loop is not the conjunction of the loop condition and the loop invariant."))
     (when (not (imp-ts-mode:is-conjunction condition-str pre-str post-str t))
       (imp-ts-mode:error pre-start pre-end "While rule violated:\nAssertion entering the loop is not the conjunction of the negated loop condition and the loop invariant." t)
       (imp-ts-mode:error post-start post-end "While rule violated:\nAssertion entering the loop is not the conjunction of the negated loop condition and the loop invariant."))))
